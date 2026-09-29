@@ -1,0 +1,49 @@
+name: Temporary Zabbix Server
+
+on:
+  push:
+    branches: ["master"]
+  workflow_dispatch:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Start Zabbix appliance
+        run: |
+          docker run -d --name zabbix             -p 8080:80             -p 10051:10051             zabbix/zabbix-appliance:ubuntu-7.4-latest
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+
+      - name: Install cloudflared
+        run: |
+          curl -L --fail -o cloudflared.deb             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Start public tunnel
+        run: |
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 > tunnel.log 2>&1 &
+          for i in {1..30}; do
+            URL=$(grep -o 'https://[-a-z0-9]*\.trycloudflare\.com' tunnel.log | head -1 || true)
+            if [ -n "$URL" ]; then
+              echo "ZABBIX_URL=$URL" >> "$GITHUB_ENV"
+              echo "::notice title=Zabbix URL::$URL"
+              echo "$URL"
+              break
+            fi
+            sleep 2
+          done
+          test -n "${ZABBIX_URL:-}"
+
+      - name: Keep server alive
+        run: |
+          echo "Zabbix is available at: $ZABBIX_URL"
+          echo "Default login: Admin / zabbix"
+          tail -f tunnel.log
