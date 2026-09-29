@@ -67,8 +67,23 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq tmate
           tmate -S /tmp/tmate.sock new-session -d
-          tmate -S /tmp/tmate.sock wait tmate-ready
-          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+
+          echo "Waiting for tmate SSH endpoint..."
+          SSH_CMD=""
+          for i in {1..30}; do
+            SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || true)
+            if [ -n "$SSH_CMD" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$SSH_CMD" ]; then
+            echo "ERROR: tmate did not provide an SSH endpoint."
+            tmate -S /tmp/tmate.sock show-messages || true
+            exit 1
+          fi
+
           echo "SSH_COMMAND=$SSH_CMD" >> "$GITHUB_ENV"
           echo "::notice title=SSH access::$SSH_CMD"
           echo "$SSH_CMD"
