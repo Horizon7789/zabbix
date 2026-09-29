@@ -13,10 +13,13 @@ jobs:
       - name: Checkout fork
         uses: actions/checkout@v4
 
-      - name: Start Zabbix appliance
+      - name: Start Zabbix 7.4
         run: |
-          docker run -d --name zabbix             -p 8080:80             -p 10051:10051             zabbix/zabbix-appliance:ubuntu-7.4-latest
-          for i in {1..60}; do
+          docker network create zbx
+          docker run -d --name postgres --network zbx             -e POSTGRES_USER=zabbix             -e POSTGRES_PASSWORD=zabbix             -e POSTGRES_DB=zabbix             postgres:16-alpine
+          docker run -d --name zabbix-server --network zbx             -e DB_SERVER_HOST=postgres             -e POSTGRES_USER=zabbix             -e POSTGRES_PASSWORD=zabbix             -e POSTGRES_DB=zabbix             -e ZBX_STARTPOLLERS=5             zabbix/zabbix-server-pgsql:7.4-ubuntu-latest
+          docker run -d --name zabbix-web --network zbx -p 8080:8080             -e ZBX_SERVER_HOST=zabbix-server             -e DB_SERVER_HOST=postgres             -e POSTGRES_USER=zabbix             -e POSTGRES_PASSWORD=zabbix             -e POSTGRES_DB=zabbix             -e PHP_TZ=Africa/Lagos             zabbix/zabbix-web-apache-pgsql:7.4-ubuntu-latest
+          for i in {1..90}; do
             if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then break; fi
             sleep 5
           done
