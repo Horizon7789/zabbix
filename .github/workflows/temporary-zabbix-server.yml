@@ -73,11 +73,11 @@ jobs:
           sudo useradd -m -s /bin/bash auditor || true
           sudo mkdir -p /home/auditor/.ssh
           sudo chmod 700 /home/auditor/.ssh
-          printf '%s\\n' '\${{ inputs.ssh_public_key }}' | sudo tee /home/auditor/.ssh/authorized_keys >/dev/null
+          printf '%s\\n' '${{ inputs.ssh_public_key }}' | sudo tee /home/auditor/.ssh/authorized_keys >/dev/null
           sudo chmod 600 /home/auditor/.ssh/authorized_keys
           sudo chown -R auditor:auditor /home/auditor/.ssh
-          sudo sed -i 's/^#\\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
           echo "AllowUsers auditor" | sudo tee -a /etc/ssh/sshd_config >/dev/null
           sudo /usr/sbin/sshd
 
