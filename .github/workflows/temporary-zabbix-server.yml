@@ -16,9 +16,26 @@ jobs:
       - name: Start Zabbix 7.4
         run: |
           docker network create zbx
-          docker run -d --name postgres --network zbx             -e POSTGRES_USER=zabbix             -e POSTGRES_PASSWORD=zabbix             -e POSTGRES_DB=zabbix             postgres:16-alpine
-          docker run -d --name zabbix-server --network zbx             -e DB_SERVER_HOST=postgres             -e POSTGRES_USER=zabbix             -e POSTGRES_PASSWORD=zabbix             -e POSTGRES_DB=zabbix             -e ZBX_STARTPOLLERS=5             zabbix/zabbix-server-pgsql:7.4-ubuntu-latest
-          docker run -d --name zabbix-web --network zbx -p 8080:8080             -e ZBX_SERVER_HOST=zabbix-server             -e DB_SERVER_HOST=postgres             -e POSTGRES_USER=zabbix             -e POSTGRES_PASSWORD=zabbix             -e POSTGRES_DB=zabbix             -e PHP_TZ=Africa/Lagos             zabbix/zabbix-web-apache-pgsql:7.4-ubuntu-latest
+          docker run -d --name postgres --network zbx \
+            -e POSTGRES_USER=zabbix \
+            -e POSTGRES_PASSWORD=zabbix \
+            -e POSTGRES_DB=zabbix \
+            postgres:16-alpine
+          docker run -d --name zabbix-server --network zbx \
+            -e DB_SERVER_HOST=postgres \
+            -e POSTGRES_USER=zabbix \
+            -e POSTGRES_PASSWORD=zabbix \
+            -e POSTGRES_DB=zabbix \
+            -e ZBX_STARTPOLLERS=5 \
+            zabbix/zabbix-server-pgsql:7.4-ubuntu-latest
+          docker run -d --name zabbix-web --network zbx -p 8080:8080 \
+            -e ZBX_SERVER_HOST=zabbix-server \
+            -e DB_SERVER_HOST=postgres \
+            -e POSTGRES_USER=zabbix \
+            -e POSTGRES_PASSWORD=zabbix \
+            -e POSTGRES_DB=zabbix \
+            -e PHP_TZ=Africa/Lagos \
+            zabbix/zabbix-web-apache-pgsql:7.4-ubuntu-latest
           for i in {1..90}; do
             if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then break; fi
             sleep 5
@@ -27,7 +44,8 @@ jobs:
 
       - name: Install cloudflared
         run: |
-          curl -L --fail -o cloudflared.deb             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          curl -L --fail -o cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
 
       - name: Start public tunnel
@@ -44,8 +62,22 @@ jobs:
             sleep 2
           done
 
+      - name: Install SSH sharing
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmate
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait tmate-ready
+          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          echo "SSH_COMMAND=$SSH_CMD" >> "$GITHUB_ENV"
+          echo "::notice title=SSH access::$SSH_CMD"
+          echo "$SSH_CMD"
+
       - name: Keep server alive
         run: |
           echo "Zabbix is available at: $ZABBIX_URL"
           echo "Default login: Admin / zabbix"
+          echo "SSH into the GitHub runner with:"
+          echo "$SSH_COMMAND"
+          echo "This SSH session provides shell access to the runner, including the Zabbix Docker containers."
           tail -f tunnel.log
