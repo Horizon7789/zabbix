@@ -1,9 +1,12 @@
 name: Temporary Zabbix Server
 
 on:
-  push:
-    branches: ["master"]
   workflow_dispatch:
+    inputs:
+      ssh_public_key:
+        description: "SSH public key authorized to access the temporary runner"
+        required: true
+        type: string
 
 jobs:
   server:
@@ -65,28 +68,40 @@ jobs:
       - name: Install SSH sharing
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq tmate
-          tmate -S /tmp/tmate.sock new-session -d
-
-          echo "Waiting for tmate SSH endpoint..."
-          SSH_CMD=""
+          sudo apt-get install -y -qq openssh-server
+          sudo mkdir -p /run/sshd
+          sudo useradd -m -s /bin/bash auditor || true
+          sudo mkdir -p /home/auditor/.ssh
+          sudo chmod 700 /home/auditor/.ssh
+          printf '%s\n' '${{ inputs.ssh_public_key }}' | sudo tee /home/auditor/.ssh/authorized_keys >/dev/null
+          sudo chmod 600 /home/auditor/.ssh/authorized_keys
+          sudo chown -R auditor:auditor /home/auditor/.ssh
+          sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+          echo "AllowUsers auditor" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+          sudo /usr/sbin/sshd
+          echo "Starting Pinggy TCP tunnel..."
+          nohup ssh -p 443 -T -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R0:127.0.0.1:22 tcp@free.pinggy.io > pinggy.log 2>&1 &
+          echo "Waiting for Pinggy endpoint..."
           for i in {1..30}; do
-            SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || true)
-            if [ -n "$SSH_CMD" ]; then
+            ENDPOINT=$(grep -Eo 'tcp://[^ ]+:[0-9]+' pinggy.log | head -1 || true)
+            if [ -n "$ENDPOINT" ]; then
+              HOSTPORT=$(echo "$ENDPOINT" | sed 's#tcp://##')
+              HOST=$(echo "$HOSTPORT" | cut -d: -f1)
+              PORT=$(echo "$HOSTPORT" | cut -d: -f2)
+              SSH_CMD="ssh -i ~/.ssh/zabbix_audit -p $PORT auditor@$HOST"
+              echo "SSH_COMMAND=$SSH_CMD" >> "$GITHUB_ENV"
+              echo "::notice title=SSH access::$SSH_CMD"
+              echo "$SSH_CMD"
               break
             fi
             sleep 2
           done
-
-          if [ -z "$SSH_CMD" ]; then
-            echo "ERROR: tmate did not provide an SSH endpoint."
-            tmate -S /tmp/tmate.sock show-messages || true
+          if ! grep -Eq 'tcp://[^ ]+:[0-9]+' pinggy.log; then
+            echo "ERROR: Pinggy did not provide an endpoint."
+            cat pinggy.log || true
             exit 1
           fi
-
-          echo "SSH_COMMAND=$SSH_CMD" >> "$GITHUB_ENV"
-          echo "::notice title=SSH access::$SSH_CMD"
-          echo "$SSH_CMD"
 
       - name: Keep server alive
         run: |
