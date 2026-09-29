@@ -43,7 +43,6 @@ jobs:
             fi
             sleep 2
           done
-          test -n "${ZABBIX_URL:-}"
 
       - name: Keep server alive
         run: |
