@@ -1,1 +1,69 @@
-name: Zabbix Server\n\non:\n  workflow_dispatch:\n\njobs:\n  zabbix:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ready\n
+name: Zabbix Server - Web Tunnel - SSH
+
+on:
+  workflow_dispatch:
+
+jobs:
+  zabbix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Start Zabbix stack
+        run: |
+          set -e
+          docker network create zbx
+          docker run -d --name postgres --network zbx -e POSTGRES_USER=zabbix -e POSTGRES_PASSWORD=zabbix -e POSTGRES_DB=zabbix postgres:16-alpine
+          docker run -d --name zabbix-server --network zbx -e DB_SERVER_HOST=postgres -e POSTGRES_USER=zabbix -e POSTGRES_PASSWORD=zabbix -e POSTGRES_DB=zabbix zabbix/zabbix-server-pgsql:7.4-ubuntu-latest
+          docker run -d --name zabbix-web --network zbx -p 8080:8080 -e ZBX_SERVER_HOST=zabbix-server -e DB_SERVER_HOST=postgres -e POSTGRES_USER=zabbix -e POSTGRES_PASSWORD=zabbix -e POSTGRES_DB=zabbix -e PHP_TZ=Africa/Lagos zabbix/zabbix-web-apache-pgsql:7.4-ubuntu-latest
+          for i in {1..90}; do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then exit 0; fi
+            sleep 5
+          done
+          docker ps -a
+          docker logs zabbix-server || true
+          docker logs zabbix-web || true
+          exit 1
+
+      - name: Start Cloudflare web tunnel
+        run: |
+          set -e
+          curl -L --fail -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 > tunnel.log 2>&1 &
+          URL=""
+          for i in {1..60}; do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 2
+          done
+          if [ -z "$URL" ]; then cat tunnel.log; exit 1; fi
+          echo "ZABBIX_URL=$URL" >> "$GITHUB_ENV"
+          echo "Zabbix URL: $URL"
+
+      - name: Create SSH access
+        id: ssh
+        uses: owenthereal/action-upterm@v2
+        with:
+          limit-access-to-actor: true
+          detached: true
+          wait-timeout-minutes: 60
+
+      - name: Show access details
+        env:
+          SSH_COMMAND: ${{ steps.ssh.outputs.ssh-command }}
+        run: |
+          echo "ZABBIX URL: $ZABBIX_URL"
+          echo "SSH COMMAND: $SSH_COMMAND"
+          echo "ZABBIX USER: Admin"
+          echo "ZABBIX PASSWORD: zabbix"
+
+      - name: Keep Zabbix and SSH alive
+        env:
+          SSH_COMMAND: ${{ steps.ssh.outputs.ssh-command }}
+        run: |
+          while true; do
+            echo "[$(date -u)] Zabbix: $ZABBIX_URL"
+            echo "[$(date -u)] SSH: $SSH_COMMAND"
+            sleep 300
+          done
