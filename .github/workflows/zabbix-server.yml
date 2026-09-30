@@ -80,19 +80,35 @@ jobs:
           fi
 
       - name: Create SSH access
+        timeout-minutes: 5
         run: |
           set -e
           sudo apt-get update -qq
           sudo apt-get install -y -qq tmate
 
+          rm -f /tmp/tmate.sock
           tmate -S /tmp/tmate.sock new-session -d bash
-          tmate -S /tmp/tmate.sock wait tmate-ready
 
-          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' | tail -1)
-          SSH_RO=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh_ro}' | tail -1)
+          echo "Waiting for tmate SSH endpoint..."
+          SSH_CMD=""
+          SSH_RO=""
 
-          if [ -z "$SSH_CMD" ]; then
-            echo "ERROR: tmate did not provide an SSH endpoint."
+          for i in {1..60}; do
+            SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null | tail -1 || true)
+            SSH_RO=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh_ro}' 2>/dev/null | tail -1 || true)
+
+            if [ -n "$SSH_CMD" ] && [[ "$SSH_CMD" == ssh\ * ]]; then
+              break
+            fi
+
+            echo "tmate endpoint not ready yet ($i/60)"
+            sleep 5
+          done
+
+          if [ -z "$SSH_CMD" ] || [[ "$SSH_CMD" != ssh\ * ]]; then
+            echo "ERROR: tmate did not provide an SSH endpoint within 5 minutes."
+            echo "tmate server output:"
+            tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' || true
             tmate -S /tmp/tmate.sock display -p '#{tmate_ssh_ro}' || true
             exit 1
           fi
