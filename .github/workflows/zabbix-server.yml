@@ -62,7 +62,7 @@ jobs:
           nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 > tunnel.log 2>&1 &
 
           for i in {1..60}; do
-            URL=$(grep -o 'https://[-a-z0-9]*\.trycloudflare\.com' tunnel.log | head -1 || true)
+            URL=$(grep -o 'https://[-a-z0-9]*\\.trycloudflare\\.com' tunnel.log | head -1 || true)
             if [ -n "$URL" ]; then
               export ZABBIX_URL="$URL"
               echo "ZABBIX_URL=$URL" >> "$GITHUB_ENV"
@@ -79,68 +79,37 @@ jobs:
             exit 1
           fi
 
-      - name: Create SSH access
-        timeout-minutes: 5
-        run: |
-          set -e
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq tmate
-
-          rm -f /tmp/tmate.sock
-          tmate -S /tmp/tmate.sock new-session -d bash
-
-          echo "Waiting for tmate SSH endpoint..."
-          SSH_CMD=""
-          SSH_RO=""
-
-          for i in {1..60}; do
-            SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null | tail -1 || true)
-            SSH_RO=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh_ro}' 2>/dev/null | tail -1 || true)
-
-            if [ -n "$SSH_CMD" ] && [[ "$SSH_CMD" == ssh\ * ]]; then
-              break
-            fi
-
-            echo "tmate endpoint not ready yet ($i/60)"
-            sleep 5
-          done
-
-          if [ -z "$SSH_CMD" ] || [[ "$SSH_CMD" != ssh\ * ]]; then
-            echo "ERROR: tmate did not provide an SSH endpoint within 5 minutes."
-            echo "tmate server output:"
-            tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' || true
-            tmate -S /tmp/tmate.sock display -p '#{tmate_ssh_ro}' || true
-            exit 1
-          fi
-
-          echo "SSH_COMMAND=$SSH_CMD" >> "$GITHUB_ENV"
-          echo "SSH_READONLY=$SSH_RO" >> "$GITHUB_ENV"
-
-          echo "::notice title=SSH access::$SSH_CMD"
-          echo "SSH command: $SSH_CMD"
-          echo "Read-only SSH: $SSH_RO"
+      - name: Create SSH access with Upterm
+        id: upterm
+        uses: owenthereal/action-upterm@v2
+        with:
+          detached: true
+          limit-access-to-actor: true
+          wait-timeout-minutes: 60
 
       - name: Show access details
+        env:
+          UPTERM_SSH: ${{ steps.upterm.outputs.ssh-command }}
         run: |
+          set -e
           echo "========================================"
           echo "ZABBIX URL"
           echo "$ZABBIX_URL"
           echo
           echo "SSH COMMAND"
-          echo "$SSH_COMMAND"
+          echo "$UPTERM_SSH"
           echo
           echo "ZABBIX LOGIN"
           echo "Username: Admin"
           echo "Password: zabbix"
           echo "========================================"
-          echo
-          echo "Runner shell has access to the Zabbix Docker containers."
-          echo "Keep this workflow running while using the tunnel/SSH."
+          echo "SSH access is provided by Upterm."
+          echo "Only the triggering GitHub account's registered SSH keys are authorized."
 
       - name: Keep Zabbix and SSH alive
         run: |
           while true; do
             echo "[$(date -u)] Zabbix: $ZABBIX_URL"
-            echo "[$(date -u)] SSH: $SSH_COMMAND"
+            echo "[$(date -u)] SSH: ${{ steps.upterm.outputs.ssh-command }}"
             sleep 300
           done
