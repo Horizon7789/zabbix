@@ -45,7 +45,6 @@ jobs:
         id: ssh
         uses: owenthereal/action-upterm@v2
         with:
-          limit-access-to-actor: true
           detached: true
           wait-timeout-minutes: 60
 
