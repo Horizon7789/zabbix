@@ -1,0 +1,1 @@
+name: Zabbix Server\n\non:\n  workflow_dispatch:\n\njobs:\n  zabbix:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ready\n
