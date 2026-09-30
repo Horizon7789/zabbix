@@ -64,6 +64,7 @@ jobs:
           for i in {1..60}; do
             URL=$(grep -o 'https://[-a-z0-9]*\.trycloudflare\.com' tunnel.log | head -1 || true)
             if [ -n "$URL" ]; then
+              export ZABBIX_URL="$URL"
               echo "ZABBIX_URL=$URL" >> "$GITHUB_ENV"
               echo "::notice title=Zabbix URL::$URL"
               echo "Zabbix URL: $URL"
